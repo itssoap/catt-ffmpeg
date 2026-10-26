@@ -25,6 +25,7 @@ from .discovery import get_cast_infos
 from .error import CastError
 from .error import CattUserError
 from .error import CliError
+from .ffmpeg import convert_subtitle_file
 from .ffmpeg import describe
 from .ffmpeg import extract_subtitle
 from .ffmpeg import probe
@@ -116,9 +117,9 @@ def process_subtitles(ctx, param, value):
     if not value:
         return None
     pval = urlparse(value).path if "://" in value else value
-    if "://" not in value and not pval.lower().endswith((".srt", ".vtt", ".ttml")):
+    if "://" not in value and not pval.lower().endswith((".srt", ".vtt", ".ttml", ".ass", ".ssa")):
         raise CliError(
-            "Invalid subtitle format. Only srt, vtt, and ttml are supported.\n"
+            "Invalid subtitle format. Only srt, vtt, ttml, ass and ssa are supported.\n"
             "(Timing, bold/italics, and positioning are honored; other styling is dropped.)"
         )
     if "://" not in value and not Path(value).is_file():
@@ -323,6 +324,8 @@ def cast(
         if sub_track:
             click.echo("Converting subtitle track {}...".format(sub_track))
             subtitles = extract_subtitle(video_url, sub_track, tracks)
+    if subtitles and "://" not in subtitles and subtitles.lower().endswith((".ass", ".ssa")):
+        subtitles = convert_subtitle_file(subtitles)
     controller = "default" if force_default or ytdl_option else None
     playlist_playback = False
     st_thr = su_thr = subs = None

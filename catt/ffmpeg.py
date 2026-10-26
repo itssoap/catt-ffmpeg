@@ -82,6 +82,13 @@ def extract_subtitle(path: str, n: int, tracks: dict) -> str:
     return out
 
 
+def convert_subtitle_file(path: str) -> str:
+    """Convert a standalone subtitle file (e.g. .ass/.ssa) to a WebVTT temp file."""
+    out = _tmp(".vtt")
+    _run([_tool("ffmpeg"), "-v", "error", "-y", "-i", path, "-f", "webvtt", out])
+    return out
+
+
 def remux_audio(path: str, n: int, tracks: dict) -> str:
     """Write a temp copy of the file with only the video and audio track n (same container)."""
     if not 1 <= n <= len(tracks["audio"]):
