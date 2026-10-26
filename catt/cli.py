@@ -25,6 +25,10 @@ from .discovery import get_cast_infos
 from .error import CastError
 from .error import CattUserError
 from .error import CliError
+from .ffmpeg import describe
+from .ffmpeg import extract_subtitle
+from .ffmpeg import probe
+from .ffmpeg import remux_audio
 from .http_server import serve_file
 from .subs_info import SubsInfo
 from .util import echo_json
@@ -154,6 +158,23 @@ def create_server_thread(filename, address, port, content_type=None, single_req=
     return thr
 
 
+def choose_tracks(tracks):
+    """Prompt for audio/subtitle track numbers; skips a prompt when there is no choice."""
+    audio = sub = None
+    if len(tracks["audio"]) > 1:
+        click.echo("Audio tracks:")
+        for t in tracks["audio"]:
+            click.echo("  " + describe("audio", t))
+        default = next((t["n"] for t in tracks["audio"] if t["default"]), 1)
+        audio = click.prompt("Audio track", type=click.IntRange(1, len(tracks["audio"])), default=default)
+    if tracks["subs"]:
+        click.echo("Subtitle tracks:")
+        for t in tracks["subs"]:
+            click.echo("  " + describe("subs", t))
+        sub = click.prompt("Subtitle track (0 = none)", type=click.IntRange(0, len(tracks["subs"])), default=0)
+    return audio, sub or None
+
+
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
 
@@ -248,6 +269,26 @@ def cli(ctx, device):
     type=STREAM_TYPE,
     help="Treat as a live stream or fixed-length video (for debugging).",
 )
+@click.option(
+    "-a",
+    "--audio",
+    type=click.IntRange(min=1),
+    metavar="N",
+    help="Local file: play audio track N (see `catt tracks`). Needs ffmpeg.",
+)
+@click.option(
+    "-S",
+    "--sub-track",
+    type=click.IntRange(min=1),
+    metavar="N",
+    help="Local file: show embedded subtitle track N (see `catt tracks`). Needs ffmpeg.",
+)
+@click.option(
+    "-i",
+    "--interactive",
+    is_flag=True,
+    help="Local file: list embedded audio/subtitle tracks and ask which to use. Needs ffmpeg.",
+)
 @click.pass_obj
 def cast(
     settings,
@@ -262,8 +303,26 @@ def cast(
     title: str,
     volume: int,
     stream_type: str,
+    audio: int,
+    sub_track: int,
+    interactive: bool,
     block: bool = False,
 ):
+    serve_path = video_url
+    if audio or sub_track or interactive:
+        if "://" in video_url:
+            raise CliError("--audio, --sub-track and --interactive only work with local files")
+        tracks = probe(video_url)
+        if interactive:
+            audio, sub_track = choose_tracks(tracks)
+        if sub_track and subtitles:
+            raise CliError("Use either --subtitles or --sub-track, not both")
+        if audio and audio != 1:
+            click.echo("Preparing audio track {}...".format(audio))
+            serve_path = remux_audio(video_url, audio, tracks)
+        if sub_track:
+            click.echo("Converting subtitle track {}...".format(sub_track))
+            subtitles = extract_subtitle(video_url, sub_track, tracks)
     controller = "default" if force_default or ytdl_option else None
     playlist_playback = False
     st_thr = su_thr = subs = None
@@ -281,7 +340,7 @@ def cast(
     if stream.is_local_file:
         fail_if_no_ip(stream.local_ip)
         st_thr = create_server_thread(
-            video_url,
+            serve_path,
             stream.local_ip,
             stream.port,
             stream.guessed_content_type,
@@ -355,6 +414,18 @@ def cast(
     elif (stream.is_local_file and media_is_image) or subs:
         while (st_thr and st_thr.is_alive()) or (su_thr and su_thr.is_alive()):
             time.sleep(1)
+
+
+@cli.command(short_help="List audio and subtitle tracks of a local file (uses ffprobe).")
+@click.argument("video_file", type=click.Path(exists=True, dir_okay=False))
+def tracks(video_file):
+    found = probe(video_file)
+    for kind, label in (("audio", "Audio"), ("subs", "Subtitles")):
+        click.echo("{}:".format(label))
+        for t in found[kind]:
+            click.echo("  " + describe(kind, t))
+        if not found[kind]:
+            click.echo("  (none)")
 
 
 @cli.command(short_help="List and toggle captions (does not work in the YouTube app).")

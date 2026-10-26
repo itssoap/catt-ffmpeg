@@ -10,17 +10,26 @@ It also allows you to cast local files or render websites.
 Installation
 ------------
 
-You can run Cast All The Things with uv without installing:
+This is a fork of [skorokithakis/catt](https://github.com/skorokithakis/catt)
+that adds audio/subtitle track selection for local files using ffmpeg.
+Install it from this repository, **not** from PyPI (`pip install catt` gives
+you the original project without these features).
 
-    uvx catt
+Run without installing, with uv (`--from` accepts any git URL):
 
-You can install Cast All The Things with pipx:
+    uvx --from git+https://github.com/itssoap/catt-ffmpeg catt cast ./myvideo.mkv
 
-    pipx install catt
+Install it as a tool:
 
-Or with pip, but that's not as good:
+    uv tool install git+https://github.com/itssoap/catt-ffmpeg
+    # or
+    pipx install git+https://github.com/itssoap/catt-ffmpeg
 
-    pip3 install catt
+Pin a branch, tag or commit by appending `@<ref>` to the URL. Upgrade with
+`uv tool upgrade catt` (or `uv tool install --force git+...` to pick up new commits).
+
+The track-selection features need `ffmpeg` and `ffprobe` in your `PATH`.
+Everything else works without them.
 
 `catt` requires Python 3.11 or higher. For older Python versions,
 you can install `catt` version 0.12.x which supports Python 3.7+.
@@ -51,6 +60,31 @@ WEBVTT, TTML and Line 21 subtitles, `catt` conveniently converts SRTs to
 WEBVTT for you on the fly. Here is how to use it:
 
     catt cast -s ./mysubtitle.srt /myvideo.mp4
+
+### Choosing audio and subtitle tracks (this fork)
+
+List the audio and subtitle tracks inside a local file (uses `ffprobe`):
+
+    catt tracks ./myvideo.mkv
+
+Pick tracks by their number when casting, or let `catt` ask you:
+
+    catt cast -a 2 ./myvideo.mkv             # second audio track
+    catt cast -S 3 ./myvideo.mkv             # embedded subtitle track 3
+    catt cast -a 2 -S 3 ./myvideo.mkv
+    catt cast -i ./myvideo.mkv               # list tracks, then prompt
+
+How it works:
+
+- Subtitles: the chosen track is converted to WebVTT with ffmpeg
+  (SRT, ASS/SSA, mov_text and WebVTT work). Bitmap subtitles (PGS, VobSub,
+  DVB) cannot be converted and are rejected. `-S` cannot be combined with `-s`.
+- Audio: Chromecast can't switch audio tracks in a plain video file, so
+  `catt` first remuxes a temporary copy containing only the video and the
+  chosen audio (no re-encoding of video; audio is copied, or converted to AAC
+  if the codec is not Chromecast-friendly). This takes a while for big files
+  and needs free disk space. The temporary file is deleted on exit.
+- These options only work with local files.
 
 `catt` can also tell your Chromecast to display any website:
 
